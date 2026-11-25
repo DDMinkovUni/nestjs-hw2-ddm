@@ -1,0 +1,25 @@
+# Starts PostgreSQL for local development:  docker compose up -d
+# Values come from .env (Docker Compose reads it automatically),
+# so the app and the database always use the same credentials.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cinema-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - '${DB_PORT}:5432'
+    volumes:
+      # Data survives "docker compose down". To wipe it: docker compose down -v
+      - cinema-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME} -d ${DB_NAME}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  cinema-pgdata:

@@ -1,0 +1,472 @@
+# Cinema API: manual test script (HW2, PostgreSQL)
+#
+# How to use: VS Code + "REST Client" extension (humao.rest-client).
+# Before: docker compose up -d && npm run migration:run && npm run start:dev
+# Then click "Send Request" above each block, going from top to bottom.
+# Later requests reuse ids from earlier ones via
+# {{requestName.response.body.id}}, so the order matters.
+#
+# Data now lives in PostgreSQL and survives restarts. Hall names get
+# {{$timestamp}} appended so the file can be run again and again without
+# hitting "hall already exists".
+
+@baseUrl = http://localhost:3000
+# A valid UUID that is guaranteed not to exist, for the 404 checks
+@missingId = 00000000-0000-4000-8000-000000000000
+
+
+######################################################################
+# FILMS
+######################################################################
+
+### Create a film -> 201
+# @name createFilm
+POST {{baseUrl}}/films
+Content-Type: application/json
+
+{
+  "title": "Dune: Part Two",
+  "durationMinutes": 166,
+  "releaseYear": 2024
+}
+
+### Create a second film (no showings; deleted later) -> 201
+# The extra "isAdmin" field is not in the DTO, so it is stripped (not in the response).
+# @name createFilmToDelete
+POST {{baseUrl}}/films
+Content-Type: application/json
+
+{
+  "title": "Shadows of Forgotten Ancestors",
+  "durationMinutes": 97,
+  "releaseYear": 1965,
+  "isAdmin": true
+}
+
+### ERROR 400: a required field is missing (no releaseYear)
+POST {{baseUrl}}/films
+Content-Type: application/json
+
+{
+  "title": "No year",
+  "durationMinutes": 100
+}
+
+### ERROR 400: wrong type (durationMinutes is a string)
+POST {{baseUrl}}/films
+Content-Type: application/json
+
+{
+  "title": "Wrong type",
+  "durationMinutes": "two hours",
+  "releaseYear": 2020
+}
+
+### Get all films -> 200
+GET {{baseUrl}}/films
+
+### Get one film -> 200
+GET {{baseUrl}}/films/{{createFilm.response.body.id}}
+
+### ERROR 404: film does not exist
+GET {{baseUrl}}/films/{{missingId}}
+
+### Update a film (any subset of fields) -> 200
+PATCH {{baseUrl}}/films/{{createFilm.response.body.id}}
+Content-Type: application/json
+
+{
+  "title": "Dune: Part Two (IMAX)"
+}
+
+### ERROR 400: PATCH with wrong type
+PATCH {{baseUrl}}/films/{{createFilm.response.body.id}}
+Content-Type: application/json
+
+{
+  "releaseYear": "last year"
+}
+
+### ERROR 404: PATCH a film that does not exist
+PATCH {{baseUrl}}/films/{{missingId}}
+Content-Type: application/json
+
+{
+  "title": "Ghost"
+}
+
+
+######################################################################
+# HALLS
+######################################################################
+
+### Create a hall 3 x 5 -> 201
+# @name createHall
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "Red hall {{$timestamp}}",
+  "rows": 3,
+  "seatsPerRow": 5
+}
+
+### Create a second hall (no showings; deleted later) -> 201
+# @name createHallToDelete
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "Small hall {{$timestamp}}",
+  "rows": 2,
+  "seatsPerRow": 2
+}
+
+### ERROR 400: a required field is missing (no seatsPerRow)
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "Blue hall",
+  "rows": 4
+}
+
+### ERROR 400: wrong type (rows is a string)
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "Blue hall",
+  "rows": "four",
+  "seatsPerRow": 6
+}
+
+### ERROR 400: not a positive integer (rows = 0, seatsPerRow = 2.5)
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "Blue hall",
+  "rows": 0,
+  "seatsPerRow": 2.5
+}
+
+### ERROR 409: a hall with this name already exists (UNIQUE constraint in the DB)
+POST {{baseUrl}}/halls
+Content-Type: application/json
+
+{
+  "name": "{{createHall.response.body.name}}",
+  "rows": 10,
+  "seatsPerRow": 10
+}
+
+### Get all halls -> 200
+GET {{baseUrl}}/halls
+
+### Get one hall with its seats -> 200 (seats has 15 elements)
+GET {{baseUrl}}/halls/{{createHall.response.body.id}}
+
+### ERROR 404: hall does not exist
+GET {{baseUrl}}/halls/{{missingId}}
+
+
+######################################################################
+# SHOWINGS
+######################################################################
+
+### Create an evening showing -> 201
+# @name createShowing
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-15T18:00:00Z",
+  "price": 15000
+}
+
+### Create a morning showing on the same day (cheaper) -> 201
+# It's created second but starts earlier, so GET /showings lists it first.
+# @name createShowingMorning
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-15T10:00:00Z",
+  "price": 9000
+}
+
+### Create a showing on another day -> 201
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-16T20:30:00Z",
+  "price": 17500
+}
+
+### ERROR 400: film with this id does not exist
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{missingId}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-15T18:00:00Z",
+  "price": 15000
+}
+
+### ERROR 400: hall with this id does not exist
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{missingId}}",
+  "startsAt": "2030-01-15T18:00:00Z",
+  "price": 15000
+}
+
+### ERROR 400: startsAt is not a valid ISO 8601 date
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "tomorrow evening",
+  "price": 15000
+}
+
+### ERROR 400: startsAt is in the past
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2020-01-01T18:00:00Z",
+  "price": 15000
+}
+
+### ERROR 400: price is not an integer (kopecks must be whole)
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-15T18:00:00Z",
+  "price": 125.5
+}
+
+### ERROR 400: price is not positive
+POST {{baseUrl}}/showings
+Content-Type: application/json
+
+{
+  "filmId": "{{createFilm.response.body.id}}",
+  "hallId": "{{createHall.response.body.id}}",
+  "startsAt": "2030-01-15T18:00:00Z",
+  "price": -100
+}
+
+### Get showings, all defaults (page=1, limit=20, sort=asc) -> 200
+# Response: { items: [...], total, page, limit }. Includes seeded showings too.
+GET {{baseUrl}}/showings
+
+### Pagination: page 1, 2 per page, only our film -> 200 (2 items, total >= 3)
+GET {{baseUrl}}/showings?filmId={{createFilm.response.body.id}}&page=1&limit=2
+
+### Pagination: page 2 of the same -> 200 (the remaining item(s))
+GET {{baseUrl}}/showings?filmId={{createFilm.response.body.id}}&page=2&limit=2
+
+### Sort newest first -> 200
+GET {{baseUrl}}/showings?filmId={{createFilm.response.body.id}}&sort=desc
+
+### ERROR 400: page is less than 1
+GET {{baseUrl}}/showings?page=0
+
+### ERROR 400: page is not an integer
+GET {{baseUrl}}/showings?page=abc
+
+### ERROR 400: limit is above 100
+GET {{baseUrl}}/showings?limit=101
+
+### ERROR 400: limit is less than 1
+GET {{baseUrl}}/showings?limit=0
+
+### ERROR 400: limit is not an integer
+GET {{baseUrl}}/showings?limit=2.5
+
+### ERROR 400: sort is not asc/desc
+GET {{baseUrl}}/showings?sort=newest
+
+### Filter by film -> 200
+GET {{baseUrl}}/showings?filmId={{createFilm.response.body.id}}
+
+### Filter by date -> 200 (showings on 2030-01-15, incl. ones from earlier runs)
+GET {{baseUrl}}/showings?date=2030-01-15
+
+### Filter by film AND date -> 200 (exactly 1: our film on 2030-01-16)
+GET {{baseUrl}}/showings?filmId={{createFilm.response.body.id}}&date=2030-01-16
+
+### ERROR 400: date is not in YYYY-MM-DD format
+GET {{baseUrl}}/showings?date=15.01.2030
+
+### Get one showing (film title + hall name) -> 200
+GET {{baseUrl}}/showings/{{createShowing.response.body.id}}
+
+### ERROR 404: showing does not exist
+GET {{baseUrl}}/showings/{{missingId}}
+
+### Seat map of a showing -> 200 (15 seats, all isBooked: false)
+GET {{baseUrl}}/showings/{{createShowing.response.body.id}}/seats
+
+### ERROR 404: seat map of a showing that does not exist
+GET {{baseUrl}}/showings/{{missingId}}/seats
+
+
+######################################################################
+# DELETING FILMS AND HALLS
+######################################################################
+
+### ERROR 409: film is used by a showing, can't delete
+DELETE {{baseUrl}}/films/{{createFilm.response.body.id}}
+
+### Delete a film without showings -> 204
+DELETE {{baseUrl}}/films/{{createFilmToDelete.response.body.id}}
+
+### ERROR 404: delete a film that does not exist
+DELETE {{baseUrl}}/films/{{missingId}}
+
+### ERROR 409: hall is used by a showing, can't delete
+DELETE {{baseUrl}}/halls/{{createHall.response.body.id}}
+
+### Delete a hall without showings -> 204
+DELETE {{baseUrl}}/halls/{{createHallToDelete.response.body.id}}
+
+### ERROR 404: delete a hall that does not exist
+DELETE {{baseUrl}}/halls/{{missingId}}
+
+
+######################################################################
+# BOOKINGS
+######################################################################
+
+### Get all bookings -> 200 (seeded booking + any from earlier runs)
+GET {{baseUrl}}/bookings
+
+### Book two seats -> 201 (totalPrice = 15000 x 2 = 30000)
+# @name createBooking
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [
+    { "row": 2, "seat": 3 },
+    { "row": 2, "seat": 4 }
+  ]
+}
+
+### ERROR 404: showing does not exist
+POST {{baseUrl}}/showings/{{missingId}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [{ "row": 1, "seat": 1 }]
+}
+
+### ERROR 400: seats array is empty
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": []
+}
+
+### ERROR 400: an element is missing one of the numbers (no "seat")
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [{ "row": 1 }]
+}
+
+### ERROR 400: the same seat appears twice
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [
+    { "row": 1, "seat": 1 },
+    { "row": 1, "seat": 1 }
+  ]
+}
+
+### ERROR 400: seat outside the hall (row 4 > 3 rows, seat 6 > 5 seats)
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [
+    { "row": 4, "seat": 1 },
+    { "row": 1, "seat": 6 }
+  ]
+}
+
+### ERROR 400: numbers are not positive integers (row 0, seat 1.5)
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [{ "row": 0, "seat": 1.5 }]
+}
+
+### ERROR 409: row 2 seat 3 is already taken -> transaction rolls back
+# Row 2 seat 5 is inserted first, then row 2 seat 3 hits the unique index.
+# ROLLBACK undoes everything, so row 2 seat 5 must still be free (checked below).
+POST {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [
+    { "row": 2, "seat": 5 },
+    { "row": 2, "seat": 3 }
+  ]
+}
+
+### Same seats on a DIFFERENT showing are free -> 201
+POST {{baseUrl}}/showings/{{createShowingMorning.response.body.id}}/bookings
+Content-Type: application/json
+
+{
+  "seats": [{ "row": 2, "seat": 3 }]
+}
+
+### Bookings of one showing -> 200
+GET {{baseUrl}}/showings/{{createShowing.response.body.id}}/bookings
+
+### ERROR 404: bookings of a showing that does not exist
+GET {{baseUrl}}/showings/{{missingId}}/bookings
+
+### Get all bookings -> 200 (now includes the two created above)
+GET {{baseUrl}}/bookings
+
+### Seat map -> 200 (row 2 seats 3 and 4: isBooked true; row 2 seat 5: false = rollback worked)
+GET {{baseUrl}}/showings/{{createShowing.response.body.id}}/seats
+
+### Cancel a booking -> 204
+DELETE {{baseUrl}}/bookings/{{createBooking.response.body.id}}
+
+### ERROR 404: booking does not exist (the one we just cancelled)
+DELETE {{baseUrl}}/bookings/{{createBooking.response.body.id}}
+
+### Seat map again -> 200 (row 2 seats 3 and 4 free again: ON DELETE CASCADE removed them)
+GET {{baseUrl}}/showings/{{createShowing.response.body.id}}/seats

@@ -1,0 +1,20 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+coverage/
+*.tsbuildinfo
+
+# local environment (secrets, real config): never commit
+.env
+.env.*
+!.env.example
+
+# logs and OS junk
+*.log
+npm-debug.log*
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
